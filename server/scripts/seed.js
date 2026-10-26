@@ -10,20 +10,21 @@ const Settings = require('../models/Settings');
 
 dotenv.config();
 
-const seedDatabase = async () => {
+const seedDatabase = async (isStandalone = true) => {
   try {
-    const mongoUri = process.env.MONGODB_URI;
-    if (!mongoUri) {
-      console.error('Error: MONGODB_URI is not defined in environment variables.');
-      process.exit(1);
+    if (isStandalone) {
+      const mongoUri = process.env.MONGODB_URI;
+      if (!mongoUri) {
+        console.error('Error: MONGODB_URI is not defined in environment variables.');
+        process.exit(1);
+      }
+      console.log('[Seed] Connecting to MongoDB...');
+      await mongoose.connect(mongoUri);
+      console.log('[Seed] Connected successfully.');
     }
 
-    console.log('[Seed] Connecting to MongoDB...');
-    await mongoose.connect(mongoUri);
-    console.log('[Seed] Connected successfully.');
-
     // Clear existing collections safely
-    console.log('[Seed] Clearing existing collections...');
+    console.log('[Seed] Initializing collections with fresh sample data...');
     await Promise.all([
       User.deleteMany({}),
       Student.deleteMany({}),
@@ -35,7 +36,6 @@ const seedDatabase = async () => {
     ]);
 
     // 1. Create Default Settings
-    console.log('[Seed] Initializing settings...');
     await Settings.create({
       minimumAttendanceThreshold: 75,
       leavePolicy: 'CountAsAbsent',
@@ -46,7 +46,6 @@ const seedDatabase = async () => {
     });
 
     // 2. Create Initial Administrator
-    console.log('[Seed] Creating Administrator account...');
     const adminPasswordHash = await User.hashPassword(
       process.env.INITIAL_ADMIN_PASSWORD || 'Admin@123456'
     );
@@ -59,7 +58,6 @@ const seedDatabase = async () => {
     });
 
     // 3. Create Faculty Users & Profiles
-    console.log('[Seed] Creating Faculty members...');
     const facultyData = [
       {
         name: 'Dr. Robert Miller',
@@ -112,7 +110,6 @@ const seedDatabase = async () => {
     }
 
     // 4. Create Subjects
-    console.log('[Seed] Creating Subjects...');
     const subjectsData = [
       {
         subjectCode: 'CS401',
@@ -159,7 +156,6 @@ const seedDatabase = async () => {
     const subjectDocs = await Subject.insertMany(subjectsData);
 
     // 5. Create Classes
-    console.log('[Seed] Creating Classes...');
     const classData = [
       {
         className: 'CSE-4A',
@@ -201,7 +197,7 @@ const seedDatabase = async () => {
 
     const classDocs = await Class.insertMany(classData);
 
-    // Update Faculty assigned subjects and classes
+    // Update Faculty assignments
     facultyDocs[0].assignedSubjects = [subjectDocs[0]._id, subjectDocs[2]._id];
     facultyDocs[0].assignedClasses = [classDocs[0]._id, classDocs[1]._id];
     await facultyDocs[0].save();
@@ -219,7 +215,6 @@ const seedDatabase = async () => {
     await facultyDocs[3].save();
 
     // 6. Create 18 Fictional Students
-    console.log('[Seed] Creating 18 Fictional Students...');
     const rawStudents = [
       { name: 'Alex Johnson', email: 'alex.j@attendance.edu', rollNumber: 'CS2026001', dept: 'Computer Science', sec: 'A', sem: 4, classIdx: 0 },
       { name: 'Brian Smith', email: 'brian.s@attendance.edu', rollNumber: 'CS2026002', dept: 'Computer Science', sec: 'A', sem: 4, classIdx: 0 },
@@ -265,49 +260,37 @@ const seedDatabase = async () => {
 
       studentDocs.push(student);
 
-      // Add to class
       await Class.findByIdAndUpdate(classDocs[rs.classIdx]._id, {
         $addToSet: { studentIds: student._id },
       });
     }
 
     // 7. Generate Historical Attendance Records across Past 14 Days
-    console.log('[Seed] Generating historical attendance records...');
     const attendanceRecords = [];
     const subjectsForCSE = [subjectDocs[0], subjectDocs[1], subjectDocs[2]];
 
-    // Create 10 distinct attendance dates over previous 2 weeks
     const dates = [];
     for (let i = 14; i >= 1; i--) {
       const d = new Date();
       d.setDate(d.getDate() - i);
-      // Skip weekends (0 is Sunday, 6 is Saturday)
       if (d.getDay() !== 0 && d.getDay() !== 6) {
         d.setUTCHours(0, 0, 0, 0);
         dates.push(d);
       }
     }
 
-    // Generate records for Section A students (first 10 students)
     const sectionAStudents = studentDocs.slice(0, 10);
 
     for (const date of dates) {
       for (const subject of subjectsForCSE) {
         for (let i = 0; i < sectionAStudents.length; i++) {
           const student = sectionAStudents[i];
-
-          // Realistic distribution:
-          // Most students have ~80-95% attendance
-          // Daniel Brown (index 3) and Hannah Taylor (index 7) have low attendance (<75%) for alerts demo
           let status = 'Present';
           if (i === 3) {
-            // Daniel: frequent absents (around 60%)
             status = Math.random() < 0.6 ? 'Absent' : 'Present';
           } else if (i === 7) {
-            // Hannah: around 68%
             status = Math.random() < 0.4 ? 'Absent' : 'Present';
           } else {
-            // General students: 90% Present, 5% Leave, 5% Absent
             const rand = Math.random();
             if (rand > 0.93) status = 'On Leave';
             else if (rand > 0.85) status = 'Absent';
@@ -327,36 +310,22 @@ const seedDatabase = async () => {
       }
     }
 
-    // Insert attendance in chunks
-    console.log(`[Seed] Inserting ${attendanceRecords.length} attendance records...`);
     await Attendance.insertMany(attendanceRecords);
 
-    console.log('\n======================================================');
-    console.log('✅ DATABASE SEEDING COMPLETED SUCCESSFULLY!');
-    console.log('======================================================');
-    console.log('\nDefault Test Accounts:');
-    console.log('------------------------------------------------------');
-    console.log('1. ADMINISTRATOR:');
-    console.log('   Email:    admin@attendance.edu');
-    console.log('   Password: Admin@123456');
-    console.log('\n2. FACULTY:');
-    console.log('   Email:    robert.miller@attendance.edu (or anita.sharma@attendance.edu)');
-    console.log('   Password: Faculty@123');
-    console.log('\n3. STUDENT (Standard):');
-    console.log('   Email:    alex.j@attendance.edu');
-    console.log('   Password: Student@123');
-    console.log('   Roll No:  CS2026001');
-    console.log('\n4. STUDENT (Low Attendance for alert demo):');
-    console.log('   Email:    daniel.b@attendance.edu');
-    console.log('   Password: Student@123');
-    console.log('   Roll No:  CS2026004');
-    console.log('======================================================\n');
+    console.log('[Seed] Database populated successfully with 18 students, 4 faculty, 5 subjects, and attendance history.');
 
-    process.exit(0);
+    if (isStandalone) {
+      process.exit(0);
+    }
   } catch (error) {
     console.error(`[Seed Error] Failed to seed database: ${error.message}`);
-    process.exit(1);
+    if (isStandalone) process.exit(1);
+    throw error;
   }
 };
 
-seedDatabase();
+if (require.main === module) {
+  seedDatabase(true);
+}
+
+module.exports = seedDatabase;
