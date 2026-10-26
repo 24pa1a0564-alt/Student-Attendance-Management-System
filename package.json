@@ -1,0 +1,22 @@
+{
+  "name": "student-attendance-management-system",
+  "version": "1.0.0",
+  "description": "Full-Stack Student Attendance Management System (MERN)",
+  "scripts": {
+    "install:all": "npm --prefix server install && npm --prefix client install",
+    "seed": "npm --prefix server run seed",
+    "test": "npm --prefix server test",
+    "server": "npm --prefix server run dev",
+    "client": "npm --prefix client run dev"
+  },
+  "keywords": [
+    "mern",
+    "react",
+    "nodejs",
+    "express",
+    "mongodb",
+    "attendance-management"
+  ],
+  "author": "Apex Institute of Technology",
+  "license": "MIT"
+}
